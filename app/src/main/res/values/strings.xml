@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Умный Экран</string>
+    <string name="accessibility_service_label">Умный Экран — Блокировка</string>
+    <string name="accessibility_service_description">Используется исключительно для блокировки экрана без отключения разблокировки по отпечатку пальца.</string>
+    <string name="device_admin_description">Необходимо для надежной аппаратной блокировки экрана без нажатия физической кнопки питания.</string>
+    <string name="tile_lock_label">Блокировка</string>
+    <string name="notification_channel_name">Служба управления экраном</string>
+    <string name="notification_channel_desc">Фоновая работа сенсоров жестов и быстрое действие блокировки</string>
+    <string name="notification_title">Умный Экран активен</string>
+    <string name="notification_text">Сенсоры включены. Нажмите для блокировки</string>
+    <string name="notification_action_lock">Заблокировать</string>
+</resources>

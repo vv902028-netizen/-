@@ -1,0 +1,6 @@
+{
+  "name": "Умный Экран",
+  "description": "Управление блокировкой и пробуждением экрана жестами без использования физической кнопки питания.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
