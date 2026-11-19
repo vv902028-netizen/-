@@ -48,6 +48,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Auto-start after reboot when service was previously enabled -->
+        <receiver
+            android:name=".receiver.BootCompletedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Accessibility Service for clean lock without losing biometrics on Android 9+ -->
         <service
             android:name=".service.ScreenLockAccessibilityService"
