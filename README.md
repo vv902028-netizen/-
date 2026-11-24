@@ -128,7 +128,7 @@
 ## Сборка и запуск
 
 ### Требования
-- **JDK**: 17+ (в Android Studio идёт в комплекте)
+- **JDK**: 21+ (в Android Studio идёт в комплекте)
 - **Android Studio**: Ladybug / Meerkat или новее (либо Android SDK Command-line Tools)
 - **Android SDK**: API 36
 
@@ -162,8 +162,23 @@ keytool -genkey -v -keystore debug.keystore \
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### 4. Сборка Release APK (с подписью)
-Для релизной сборки передайте параметры вашего upload-ключа через переменные окружения:
+### 4. Сборка и публикация APK прямо на GitHub (Actions → Releases)
+Вы можете собрать APK без установки Android Studio прямо в браузере на GitHub:
+
+1. Откройте вкладку **Actions** вашего репозитория.
+2. Выберите workflow **Build & Release APK** слева и нажмите **Run workflow**.
+3. Укажите тег версии (например, `v1.0.0`), тип сборки (`release` или `debug`) и при желании описание релиза.
+4. После завершения сборки готовый файл `SmartScreen-<версия>.apk` и контрольная сумма `SHA256SUMS.txt` автоматически появятся в разделе **Releases** (а также в артефактах запуска Actions).
+
+Также релиз собирается автоматически при отправке git-тега вида `v*` (например, `git tag v1.0.0 && git push origin v1.0.0`).
+
+> **Постоянная подпись для обновлений (необязательно):** по умолчанию workflow подписывает release APK временным ключом. Чтобы будущие версии можно было устанавливать поверх старой без удаления приложения, добавьте в *Settings → Secrets and variables → Actions* три секрета:
+> - `KEYSTORE_BASE64` — ваш `.jks` ключ (с алиасом `upload`), закодированный в base64 (`base64 -w 0 my-upload-key.jks`);
+> - `STORE_PASSWORD` — пароль хранилища ключей;
+> - `KEY_PASSWORD` — пароль ключа.
+
+### 5. Локальная сборка Release APK (с подписью)
+Для локальной релизной сборки передайте параметры вашего upload-ключа через переменные окружения:
 ```bash
 KEYSTORE_PATH=/path/to/my-upload-key.jks \
 STORE_PASSWORD=your_store_password \
@@ -189,7 +204,8 @@ KEY_PASSWORD=your_key_password \
 - [CHANGELOG.md](CHANGELOG.md) — история версий и изменений
 - [CONTRIBUTING.md](CONTRIBUTING.md) — правила участия в разработке и оформления PR
 - [SECURITY.md](SECURITY.md) — политика приватности и безопасности
-- [.github/workflows/android-ci.yml](.github/workflows/android-ci.yml) — автоматическая проверка тестов и сборки APK в GitHub Actions
+- [.github/workflows/android-ci.yml](.github/workflows/android-ci.yml) — автоматическая проверка тестов и сборки Debug APK
+- [.github/workflows/release-apk.yml](.github/workflows/release-apk.yml) — сборка APK по кнопке в Actions и публикация в GitHub Releases
 
 ---
 

@@ -1,0 +1,178 @@
+name: Build & Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Версия / тег релиза (например: v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+        type: string
+      build_type:
+        description: 'Тип сборки APK'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      prerelease:
+        description: 'Отметить как предварительный релиз (Pre-release)'
+        required: false
+        default: false
+        type: boolean
+      release_notes:
+        description: 'Описание релиза (необязательно)'
+        required: false
+        default: ''
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build APK & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUILD_TYPE: ${{ inputs.build_type }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            TAG="$REF_NAME"
+            BUILD_TYPE="release"
+            PRERELEASE="false"
+          else
+            TAG="$INPUT_VERSION"
+            BUILD_TYPE="$INPUT_BUILD_TYPE"
+            PRERELEASE="$INPUT_PRERELEASE"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "build_type=$BUILD_TYPE" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare signing keystores
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # Always ensure debug.keystore exists for unit tests and debug builds
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey \
+              -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # Prepare release keystore from GitHub Secrets or fallback to a temporary CI keystore
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$SECRET_STORE_PASSWORD" ] && [ -n "$SECRET_KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=$SECRET_STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$SECRET_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "temp_key=false" >> "$GITHUB_OUTPUT"
+          else
+            keytool -genkey -v -keystore my-upload-key.jks \
+              -storepass androidrelease -alias upload \
+              -keypass androidrelease -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=SmartScreen CI,O=SmartScreen,C=RU"
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=androidrelease" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=androidrelease" >> "$GITHUB_ENV"
+            echo "temp_key=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Unit & Robolectric Tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Build APK
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          BUILD_TYPE: ${{ steps.meta.outputs.build_type }}
+        run: |
+          mkdir -p dist
+          if [ "$BUILD_TYPE" = "release" ]; then
+            ./gradlew assembleRelease --stacktrace
+            cp app/build/outputs/apk/release/app-release.apk "dist/SmartScreen-${TAG}-release.apk"
+          else
+            ./gradlew assembleDebug --stacktrace
+            cp app/build/outputs/apk/debug/app-debug.apk "dist/SmartScreen-${TAG}-debug.apk"
+          fi
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          ls -lh dist/
+
+      - name: Upload APK to Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartScreen-${{ steps.meta.outputs.tag }}-${{ steps.meta.outputs.build_type }}-apk
+          path: dist/*
+          retention-days: 30
+
+      - name: Prepare Release Notes
+        id: notes
+        env:
+          CUSTOM_NOTES: ${{ inputs.release_notes }}
+          BUILD_TYPE: ${{ steps.meta.outputs.build_type }}
+          TEMP_KEY: ${{ steps.signing.outputs.temp_key }}
+        run: |
+          {
+            echo "body<<EOF"
+            if [ -n "$CUSTOM_NOTES" ]; then
+              echo "$CUSTOM_NOTES"
+              echo ""
+            fi
+            echo "### Установка"
+            echo "1. Скачайте файл \`.apk\` из раздела **Assets** ниже."
+            echo "2. Установите его на Android-смартфон (Android 7.0+)."
+            echo "3. Предоставьте права **Специальных возможностей** (Android 9+) или **Администратора устройства** (для старых версий Android)."
+            if [ "$BUILD_TYPE" = "release" ] && [ "$TEMP_KEY" = "true" ]; then
+              echo ""
+              echo "> **Примечание о подписи:** APK подписан временным ключом GitHub Actions. Чтобы обновлять приложение поверх уже установленного без переустановки, добавьте постоянный ключ в Secrets репозитория (\`KEYSTORE_BASE64\`, \`STORE_PASSWORD\`, \`KEY_PASSWORD\`)."
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Умный Экран ${{ steps.meta.outputs.tag }}
+          body: ${{ steps.notes.outputs.body }}
+          generate_release_notes: true
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          files: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
